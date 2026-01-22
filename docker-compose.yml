@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./utils/db:/app/utils/db
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
+    restart: unless-stopped
+
+  cli:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./utils/db:/app/utils/db
+    env_file:
+      - .env
+    command: python3 bin/crew_run.py
+    profiles:
+      - cli

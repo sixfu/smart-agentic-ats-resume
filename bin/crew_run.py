@@ -4,9 +4,13 @@ bin/crew_run.py
 
 Programmatic entry-point to launch the ATS Resume Tailoring Crew with predefined inputs.
 """
+# Fix for ChromaDB SQLite version requirement
+import sys
+__import__('pysqlite3')
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 import warnings
 import os
-import sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -17,8 +21,6 @@ if project_root not in sys.path:
 warnings.filterwarnings('ignore')
 load_dotenv()
 
-from utils import get_openai_api_key, get_serper_api_key
-
 os.environ["OPENAI_MODEL_NAME"] = 'gpt-3.5-turbo'
 from utils.crew import job_application_crew
 
@@ -28,6 +30,9 @@ job_application_inputs = {
         '?lever-origin=applied&lever-source%5B%5D=AI+Fund'
     ),
     'github_url': 'https://github.com/joaomdmoura',
+    'linkedin_url': '',  # Optional: Add LinkedIn URL if available
+    'scholar_url': '',   # Optional: Add Google Scholar URL if available
+    'portfolio_url': '', # Optional: Add portfolio URL if available
     'personal_writeup': (
         """
 Noah is an accomplished Software Engineering Leader with 18 years of experience, specializing in

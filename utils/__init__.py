@@ -7,4 +7,4 @@ are handled in streamlit_app.py (or app.py), not here.
 """
 
 # Define public submodules
-__all__ = ['agents', 'crew', 'download', 'tasks']
+__all__ = ['agents', 'crew', 'download']

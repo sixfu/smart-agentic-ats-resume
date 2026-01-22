@@ -9,6 +9,7 @@ Defines configuration, tools, agents, tasks, crew assembly, and execution in one
 import warnings
 import os
 import logging
+from pathlib import Path
 from dotenv import load_dotenv
 from crewai import Agent, Task, Crew
 from crewai_tools import FileReadTool, ScrapeWebsiteTool, MDXSearchTool, SerperDevTool
@@ -29,28 +30,62 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ─── Tool Factory ─────────────────────────────────────────────────────────────
-
-def create_tools(resume_path: str, mdx_path: str):
-    """
-    Instantiate and return the set of CrewAI tools.
-    """
-    return {
-        "search": SerperDevTool(api_key=os.environ["SERPER_API_KEY"]),
-        "scrape": ScrapeWebsiteTool(),
-        "read_resume": FileReadTool(file_path=resume_path),
-        "semantic_search": MDXSearchTool(mdx=mdx_path),
-    }
+# Tools are now created inline in create_job_application_crew for better path handling
 
 # ─── Agent Factory ────────────────────────────────────────────────────────────
 
 def create_agents(tools):
     """
     Build and return the list of Agents driving the workflow.
+    Tools dict may contain: 'search', 'scrape', 'read_resume', 'semantic_search'
     """
+    # Get available tools (some may be optional)
+    search_tool = tools.get("search")
+    scrape_tool = tools.get("scrape")
+    read_resume_tool = tools.get("read_resume")
+    semantic_search_tool = tools.get("semantic_search")
+
+    # Build tool lists for each agent (only include tools that exist)
+    researcher_tools = []
+    if scrape_tool:
+        researcher_tools.append(scrape_tool)
+    if search_tool:
+        researcher_tools.append(search_tool)
+
+    profiler_tools = []
+    if scrape_tool:
+        profiler_tools.append(scrape_tool)
+    if search_tool:
+        profiler_tools.append(search_tool)
+    if read_resume_tool:
+        profiler_tools.append(read_resume_tool)
+    if semantic_search_tool:
+        profiler_tools.append(semantic_search_tool)
+
+    strategist_tools = []
+    if scrape_tool:
+        strategist_tools.append(scrape_tool)
+    if search_tool:
+        strategist_tools.append(search_tool)
+    if read_resume_tool:
+        strategist_tools.append(read_resume_tool)
+    if semantic_search_tool:
+        strategist_tools.append(semantic_search_tool)
+
+    interviewer_tools = []
+    if scrape_tool:
+        interviewer_tools.append(scrape_tool)
+    if search_tool:
+        interviewer_tools.append(search_tool)
+    if read_resume_tool:
+        interviewer_tools.append(read_resume_tool)
+    if semantic_search_tool:
+        interviewer_tools.append(semantic_search_tool)
+
     researcher = Agent(
         role="Tech Job Researcher",
         goal="Analyze job postings deeply to identify required skills & qualifications.",
-        tools=[tools["scrape"], tools["search"]],
+        tools=researcher_tools,
         verbose=True,
         backstory=(
             "Extract critical information from job postings to form the foundation "
@@ -61,27 +96,37 @@ def create_agents(tools):
     profiler = Agent(
         role="Personal Profiler for Engineers",
         goal="Compile detailed personal and professional profiles from diverse sources.",
-        tools=[tools["scrape"], tools["search"], tools["read_resume"], tools["semantic_search"]],
-        verbose=True
+        tools=profiler_tools,
+        verbose=True,
+        backstory=(
+            "Analyze personal projects, publications, and professional history to "
+            "create comprehensive profiles for resume tailoring."
+        )
     )
 
     resume_strategist = Agent(
         role="Resume Strategist for Engineers",
         goal="Optimize resumes so they align tightly with job requirements.",
-        tools=[tools["scrape"], tools["search"], tools["read_resume"], tools["semantic_search"]],
-        verbose=True
+        tools=strategist_tools,
+        verbose=True,
+        backstory=(
+            "Expert at tailoring resumes to highlight the most relevant experience "
+            "and skills for specific job postings."
+        )
     )
 
     interview_preparer = Agent(
         role="Engineering Interview Preparer",
         goal="Generate focused interview questions & talking points.",
-        tools=[tools["scrape"], tools["search"], tools["read_resume"], tools["semantic_search"]],
-        verbose=True
+        tools=interviewer_tools,
+        verbose=True,
+        backstory=(
+            "Prepare candidates for interviews by creating tailored questions and "
+            "talking points based on job requirements and their background."
+        )
     )
 
-    return [researcher, profiler, resume_strategist, interview_preparer]
-
-# ─── Task Factory ─────────────────────────────────────────────────────────────
+    return [researcher, profiler, resume_strategist, interview_preparer]# ─── Task Factory ─────────────────────────────────────────────────────────────
 
 def create_tasks(agents):
     """
@@ -144,17 +189,70 @@ def create_tasks(agents):
 
     return [research_task, profile_task, resume_strategy_task, interview_task]
 
+# ─── Crew Factory ─────────────────────────────────────────────────────────────
+
+def create_job_application_crew(resume_path=None, mdx_path=None):
+    """
+    Factory function to create and return the job application crew.
+    If resume_path or mdx_path are not provided, they default to None and
+    tools requiring them will be disabled.
+    """
+    # Only create tools that have valid paths
+    tools_dict = {
+        "scrape": ScrapeWebsiteTool(),
+    }
+
+    # Add search tool only if API key is available
+    serper_key = os.environ.get("SERPER_API_KEY")
+    if serper_key:
+        tools_dict["search"] = SerperDevTool(api_key=serper_key)
+    else:
+        logger.warning("SERPER_API_KEY not found. Search functionality will be limited.")
+
+    # Add file-based tools if paths are provided and exist
+    if resume_path and os.path.exists(resume_path):
+        tools_dict["read_resume"] = FileReadTool(file_path=resume_path)
+    else:
+        logger.warning(f"Resume path not provided or doesn't exist: {resume_path}")
+
+    if mdx_path and os.path.exists(mdx_path):
+        tools_dict["semantic_search"] = MDXSearchTool(mdx=mdx_path)
+    else:
+        logger.warning(f"MDX path not provided or doesn't exist: {mdx_path}")
+
+    agents = create_agents(tools_dict)
+    tasks  = create_tasks(agents)
+
+    return Crew(agents=agents, tasks=tasks, verbose=True)
+
+# Lazy initialization: job_application_crew will be created only when accessed
+class LazyJobApplicationCrew:
+    """Lazy wrapper to delay crew creation until first use."""
+    _crew = None
+
+    def kickoff(self, inputs):
+        """Create crew on first kickoff call."""
+        if self._crew is None:
+            # Set default paths relative to project root
+            project_root = Path(__file__).resolve().parent.parent
+            resume_path = project_root / "data" / "Nikhil_Nageshwar_Inturi.pdf"
+            mdx_path = project_root / "data" / "Nikhil_Nageshwar_Inturi.pdf"
+
+            # Convert to string, but allow non-existent paths
+            self._crew = create_job_application_crew(
+                resume_path=str(resume_path) if resume_path.exists() else None,
+                mdx_path=str(mdx_path) if mdx_path.exists() else None
+            )
+        return self._crew.kickoff(inputs=inputs)
+
+job_application_crew = LazyJobApplicationCrew()
+
 # ─── Main Workflow ────────────────────────────────────────────────────────────
 
 def main():
-    # Instantiate tools, agents, and tasks
-    tools  = create_tools(resume_path="../data/Nikhil_Nageshwar_Inturi.pdf", mdx_path="../data/Nikhil_Nageshwar_Inturi.pdf")
-    agents = create_agents(tools)
-    tasks  = create_tasks(agents)
-
-    # Assemble the Crew
-    crew = Crew(agents=agents, tasks=tasks, verbose=True)
-
+    """
+    Alternative entry point using direct crew creation.
+    """
     # Define inputs (extendable with any URLs or writeups)
     inputs = {
         "job_posting_url": "https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4215170359",
@@ -185,7 +283,7 @@ def main():
     }
 
     logger.info("Starting ATS Resume Tailoring workflow...")
-    result = crew.kickoff(inputs=inputs)
+    result = job_application_crew.kickoff(inputs=inputs)
     logger.info("Workflow complete. Generated outputs: %s", list(result.keys()))
 
     return result
